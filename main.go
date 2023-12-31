@@ -1,10 +1,23 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"database/sql"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
+)
+
+const (
+	importDir  = "import"
+	outputDir  = "output"
+	dbFileName = "tnved.db"
 )
 
 type TCol struct {
@@ -70,9 +83,25 @@ var tables []Table = []Table{
 
 func main() {
 	fmt.Println("Start!")
-	db, _ := sql.Open("sqlite3", "./output/tnved.db")
-	defer db.Close()
+	db, _ := sql.Open("sqlite3", pathAdd(outputDir, dbFileName))
 	initTables(db, tables)
+	defer db.Close()
+
+	dir, _ := os.Open(importDir)
+	defer dir.Close()
+	files, _ := dir.ReadDir(0)
+	for _, file := range files {
+		nextFile, _ := os.Open(pathAdd(importDir, file.Name()))
+		scanner := bufio.NewScanner(nextFile)
+		scanner.Scan()
+		line := scanner.Text()
+		var version, date string
+		unpack(strings.Split(line, "|"), &version, &date)
+		fmt.Printf("File %s, version: %s, date: %s start conversion! \n", file.Name(), version, date)
+		scanner.Scan()
+		line = scanner.Text()
+		fmt.Println(DecodeCP866(line))
+	}
 	fmt.Println("Finished!")
 
 }
@@ -100,4 +129,18 @@ func unpack(s []string, vars ...*string) {
 	for i := range vars {
 		*vars[i] = s[i]
 	}
+}
+
+func pathAdd(paths ...string) string {
+	var path string = "."
+	for _, point := range paths {
+		path += "/" + point
+	}
+	return path
+}
+
+func DecodeCP866(s string) string {
+	reader := transform.NewReader(bytes.NewReader([]byte(s)), charmap.CodePage866.NewDecoder())
+	res, _ := io.ReadAll(reader)
+	return string(res)
 }
