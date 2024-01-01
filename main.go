@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -91,19 +92,40 @@ func main() {
 	defer dir.Close()
 	files, _ := dir.ReadDir(0)
 	for _, file := range files {
-		nextFile, _ := os.Open(pathAdd(importDir, file.Name()))
+		fileName := file.Name()
+		nextFile, _ := os.Open(pathAdd(importDir, fileName))
 		scanner := bufio.NewScanner(nextFile)
 		scanner.Scan()
-		line := scanner.Text()
 		var version, date string
-		unpack(strings.Split(line, "|"), &version, &date)
-		fmt.Printf("File %s, version: %s, date: %s start conversion! \n", file.Name(), version, date)
-		scanner.Scan()
-		line = scanner.Text()
-		fmt.Println(DecodeCP866(line))
+		unpack(strings.Split(scanner.Text(), "|"), &version, &date)
+		fmt.Printf("File %s, version: %s, date: %s start conversion! \n", fileName, version, date)
+		tableName := strings.ToLower(fileName[:len(fileName)-4])
+		i := slices.IndexFunc(tables, func(t Table) bool {
+			return t.name == tableName
+		})
+		insert := insertToTable(db, tables[i])
+		for scanner.Scan() {
+			line := DecodeCP866(scanner.Text())
+			rows := stringsToAny(strings.Split(line, "|"))
+			insert.Exec(rows...)
+		}
+		defer insert.Close()
+		fmt.Printf("Table %s is filled from file %s \n", tableName, fileName)
 	}
 	fmt.Println("Finished!")
 
+}
+
+func insertToTable(db *sql.DB, table Table) *sql.Stmt {
+	insertQuery := "INSERT INTO " + table.name + " ("
+	values := ") VALUES ("
+	for _, field := range table.fields {
+		insertQuery += field.name + ", "
+		values += "?, "
+	}
+	insertQuery = insertQuery[:len(insertQuery)-2] + values[:len(values)-2] + ")"
+	stmt, _ := db.Prepare(insertQuery)
+	return stmt
 }
 
 func initTables(db *sql.DB, tables []Table) {
@@ -143,4 +165,12 @@ func DecodeCP866(s string) string {
 	reader := transform.NewReader(bytes.NewReader([]byte(s)), charmap.CodePage866.NewDecoder())
 	res, _ := io.ReadAll(reader)
 	return string(res)
+}
+
+func stringsToAny(strings []string) []any {
+	res := make([]any, len(strings))
+	for i, str := range strings {
+		res[i] = str
+	}
+	return res[:len(res)-1]
 }
