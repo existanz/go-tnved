@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -14,9 +15,10 @@ import (
 )
 
 const (
-	importDir  = "import"
-	outputDir  = "output"
-	dbFileName = "tnved.db"
+	importDir    = "import"
+	outputDir    = "output"
+	dbFileName   = "tnved.db"
+	jsonFileName = "tnved.json"
 )
 
 type TCol struct {
@@ -116,7 +118,8 @@ func main() {
 		}
 		fmt.Println("Finished!")
 	} else if command == "export" {
-		createJson(db)
+		tnved := selectTNVED(db)
+		saveToJSON(tnved)
 	}
 }
 
@@ -152,76 +155,89 @@ func initTables(db *sql.DB, tables []Table) {
 }
 
 type razdelRow struct {
-	razdel string  `json:"razdel"`
-	naim   string  `json:"naim"`
-	data   string  `json:"data"`
-	groups []group `json:"groups"`
+	Razdel string  `json:"razdel"`
+	Naim   string  `json:"naim"`
+	Data   string  `json:"data"`
+	Groups []group `json:"groups"`
 }
 
 type group struct {
-	gruppa string  `json:"gruppa"`
-	naim   string  `json:"naim"`
-	data   string  `json:"data"`
-	tovars []tovar `json:"tovars"`
+	Gruppa string  `json:"gruppa"`
+	Naim   string  `json:"naim"`
+	Data   string  `json:"data"`
+	Tovars []tovar `json:"tovars"`
 }
 
 type tovar struct {
-	tovPoz string `json:"tovpoz"`
-	naim   string `json:"naim"`
-	data   string `json:"date"`
-	subs   []sub  `json:"subs"`
+	TovPoz string `json:"tovpoz"`
+	Naim   string `json:"naim"`
+	Data   string `json:"date"`
+	Subs   []sub  `json:"subs"`
 }
 
 type sub struct {
-	subPoz string `json:"subpoz"`
-	naim   string `json:"naim"`
-	data   string `json:"date"`
+	SubPoz string `json:"subpoz"`
+	Naim   string `json:"naim"`
+	Data   string `json:"date"`
 }
 
-func createJson(db *sql.DB) {
+func selectTNVED(db *sql.DB) []razdelRow {
 	var rows []razdelRow
 	selectRazdel, _ := db.Query("SELECT RAZDEL, NAIM, DATA FROM tnved1 WHERE DATA1 = ''")
 	for selectRazdel.Next() {
 		var row razdelRow
-		_ = selectRazdel.Scan(&row.razdel, &row.naim, &row.data)
+		_ = selectRazdel.Scan(&row.Razdel, &row.Naim, &row.Data)
 		rows = append(rows, row)
 	}
 	defer selectRazdel.Close()
 	for i, r := range rows {
-		selectGroup, _ := db.Query("SELECT GRUPPA, NAIM, DATA FROM tnved2 WHERE DATA1 = '' AND RAZDEL = ?", r.razdel)
+		selectGroup, _ := db.Query("SELECT GRUPPA, NAIM, DATA FROM tnved2 WHERE DATA1 = '' AND RAZDEL = ?", r.Razdel)
+		defer selectGroup.Close()
 		for selectGroup.Next() {
 			var row group
-			_ = selectGroup.Scan(&row.gruppa, &row.naim, &row.data)
-			rows[i].groups = append(rows[i].groups, row)
+			_ = selectGroup.Scan(&row.Gruppa, &row.Naim, &row.Data)
+			rows[i].Groups = append(rows[i].Groups, row)
 		}
 	}
 	for i, r := range rows {
-		for j, g := range r.groups {
-			selectTovar, _ := db.Query("SELECT TOV_POZ, NAIM, DATA FROM tnved3 WHERE DATA1 = '' AND GRUPPA = ?", g.gruppa)
+		for j, g := range r.Groups {
+			selectTovar, _ := db.Query("SELECT TOV_POZ, NAIM, DATA FROM tnved3 WHERE DATA1 = '' AND GRUPPA = ?", g.Gruppa)
+			defer selectTovar.Close()
 			for selectTovar.Next() {
 				var row tovar
-				_ = selectTovar.Scan(&row.tovPoz, &row.naim, &row.data)
-				rows[i].groups[j].tovars = append(rows[i].groups[j].tovars, row)
+				_ = selectTovar.Scan(&row.TovPoz, &row.Naim, &row.Data)
+				rows[i].Groups[j].Tovars = append(rows[i].Groups[j].Tovars, row)
 			}
 		}
 	}
 
 	for i, r := range rows {
-		for j, g := range r.groups {
-			for k, t := range g.tovars {
-				selectSub, err := db.Query("SELECT SUB_POZ, KR_NAIM, DATA FROM tnved4 WHERE DATA1 = '' AND GRUPPA = ? AND TOV_POZ = ?", g.gruppa, t.tovPoz)
-				if err != nil {
-					fmt.Println(err.Error())
-				}
+		for j, g := range r.Groups {
+			for k, t := range g.Tovars {
+				selectSub, _ := db.Query("SELECT SUB_POZ, KR_NAIM, DATA FROM tnved4 WHERE DATA1 = '' AND GRUPPA = ? AND TOV_POZ = ?", g.Gruppa, t.TovPoz)
+				defer selectSub.Close()
 				for selectSub.Next() {
 					var row sub
-					_ = selectSub.Scan(&row.subPoz, &row.naim, &row.data)
-					rows[i].groups[j].tovars[k].subs = append(rows[i].groups[j].tovars[k].subs, row)
+					_ = selectSub.Scan(&row.SubPoz, &row.Naim, &row.Data)
+					rows[i].Groups[j].Tovars[k].Subs = append(rows[i].Groups[j].Tovars[k].Subs, row)
 				}
 			}
 		}
 	}
+	return rows
+}
 
-	fmt.Println(rows[0])
-	defer selectRazdel.Close()
+func saveToJSON(tnved []razdelRow) {
+	println("formed, start to export")
+	file, err := json.MarshalIndent(tnved, "", "  ")
+	println(string(file))
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	err = os.WriteFile(utils.PathAdd(outputDir, jsonFileName), file, 0644)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	println("file exported")
 }
