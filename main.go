@@ -83,35 +83,41 @@ var tables []Table = []Table{
 func main() {
 	fmt.Println("Start!")
 	db, _ := sql.Open("sqlite3", utils.PathAdd(outputDir, dbFileName))
-	initTables(db, tables)
 	defer db.Close()
+	var command string
+	fmt.Scan(&command)
+	if command == "convert" {
 
-	dir, _ := os.Open(importDir)
-	defer dir.Close()
-	files, _ := dir.ReadDir(0)
-	for _, file := range files {
-		fileName := file.Name()
-		nextFile, _ := os.Open(utils.PathAdd(importDir, fileName))
-		scanner := bufio.NewScanner(nextFile)
-		scanner.Scan()
-		var version, date string
-		utils.Unpack(strings.Split(scanner.Text(), "|"), &version, &date)
-		fmt.Printf("File %s, version: %s, date: %s start conversion! \n", fileName, version, date)
-		tableName := strings.ToLower(fileName[:len(fileName)-4])
-		i := slices.IndexFunc(tables, func(t Table) bool {
-			return t.name == tableName
-		})
-		insert := insertToTable(db, tables[i])
-		for scanner.Scan() {
-			line := utils.DecodeCP866(scanner.Text())
-			rows := utils.StringsToAny(strings.Split(line, "|"))
-			insert.Exec(rows...)
+		initTables(db, tables)
+
+		dir, _ := os.Open(importDir)
+		defer dir.Close()
+		files, _ := dir.ReadDir(0)
+		for _, file := range files {
+			fileName := file.Name()
+			nextFile, _ := os.Open(utils.PathAdd(importDir, fileName))
+			scanner := bufio.NewScanner(nextFile)
+			scanner.Scan()
+			var version, date string
+			utils.Unpack(strings.Split(scanner.Text(), "|"), &version, &date)
+			fmt.Printf("File %s, version: %s, date: %s start conversion! \n", fileName, version, date)
+			tableName := strings.ToLower(fileName[:len(fileName)-4])
+			i := slices.IndexFunc(tables, func(t Table) bool {
+				return t.name == tableName
+			})
+			insert := insertToTable(db, tables[i])
+			for scanner.Scan() {
+				line := utils.DecodeCP866(scanner.Text())
+				rows := utils.StringsToAny(strings.Split(line, "|"))
+				insert.Exec(rows...)
+			}
+			defer insert.Close()
+			fmt.Printf("Table %s is filled from file %s \n", tableName, fileName)
 		}
-		defer insert.Close()
-		fmt.Printf("Table %s is filled from file %s \n", tableName, fileName)
+		fmt.Println("Finished!")
+	} else if command == "export" {
+		createJson(db)
 	}
-	fmt.Println("Finished!")
-
 }
 
 func insertToTable(db *sql.DB, table Table) *sql.Stmt {
@@ -143,4 +149,79 @@ func initTables(db *sql.DB, tables []Table) {
 		delete.Close()
 		fmt.Println("Table " + table.name + " successfuly initialized")
 	}
+}
+
+type razdelRow struct {
+	razdel string  `json:"razdel"`
+	naim   string  `json:"naim"`
+	data   string  `json:"data"`
+	groups []group `json:"groups"`
+}
+
+type group struct {
+	gruppa string  `json:"gruppa"`
+	naim   string  `json:"naim"`
+	data   string  `json:"data"`
+	tovars []tovar `json:"tovars"`
+}
+
+type tovar struct {
+	tovPoz string `json:"tovpoz"`
+	naim   string `json:"naim"`
+	data   string `json:"date"`
+	subs   []sub  `json:"subs"`
+}
+
+type sub struct {
+	subPoz string `json:"subpoz"`
+	naim   string `json:"naim"`
+	data   string `json:"date"`
+}
+
+func createJson(db *sql.DB) {
+	var rows []razdelRow
+	selectRazdel, _ := db.Query("SELECT RAZDEL, NAIM, DATA FROM tnved1 WHERE DATA1 = ''")
+	for selectRazdel.Next() {
+		var row razdelRow
+		_ = selectRazdel.Scan(&row.razdel, &row.naim, &row.data)
+		rows = append(rows, row)
+	}
+	defer selectRazdel.Close()
+	for i, r := range rows {
+		selectGroup, _ := db.Query("SELECT GRUPPA, NAIM, DATA FROM tnved2 WHERE DATA1 = '' AND RAZDEL = ?", r.razdel)
+		for selectGroup.Next() {
+			var row group
+			_ = selectGroup.Scan(&row.gruppa, &row.naim, &row.data)
+			rows[i].groups = append(rows[i].groups, row)
+		}
+	}
+	for i, r := range rows {
+		for j, g := range r.groups {
+			selectTovar, _ := db.Query("SELECT TOV_POZ, NAIM, DATA FROM tnved3 WHERE DATA1 = '' AND GRUPPA = ?", g.gruppa)
+			for selectTovar.Next() {
+				var row tovar
+				_ = selectTovar.Scan(&row.tovPoz, &row.naim, &row.data)
+				rows[i].groups[j].tovars = append(rows[i].groups[j].tovars, row)
+			}
+		}
+	}
+
+	for i, r := range rows {
+		for j, g := range r.groups {
+			for k, t := range g.tovars {
+				selectSub, err := db.Query("SELECT SUB_POZ, KR_NAIM, DATA FROM tnved4 WHERE DATA1 = '' AND GRUPPA = ? AND TOV_POZ = ?", g.gruppa, t.tovPoz)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
+				for selectSub.Next() {
+					var row sub
+					_ = selectSub.Scan(&row.subPoz, &row.naim, &row.data)
+					rows[i].groups[j].tovars[k].subs = append(rows[i].groups[j].tovars[k].subs, row)
+				}
+			}
+		}
+	}
+
+	fmt.Println(rows[0])
+	defer selectRazdel.Close()
 }
