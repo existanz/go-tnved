@@ -120,8 +120,6 @@ func main() {
 	} else if command == "export" {
 		tnved := selectTNVED(db)
 		saveToJSON(tnved)
-	} else if command == "test" {
-		utils.ConvertDate("22.12.2021")
 	}
 }
 
@@ -164,21 +162,21 @@ type razdelRow struct {
 }
 
 type group struct {
-	Gruppa string  `json:"group"`
+	Gruppa string  `json:"code"`
 	Naim   string  `json:"naim"`
 	Data   string  `json:"date"`
 	Tovars []tovar `json:"goods"`
 }
 
 type tovar struct {
-	TovPoz string `json:"good"`
+	TovPoz string `json:"code"`
 	Naim   string `json:"naim"`
 	Data   string `json:"date"`
 	Subs   []sub  `json:"subs"`
 }
 
 type sub struct {
-	SubPoz string `json:"sub"`
+	SubPoz string `json:"code"`
 	Naim   string `json:"naim"`
 	Data   string `json:"date"`
 }
@@ -203,7 +201,7 @@ func selectTNVED(db *sql.DB) []razdelRow {
 	}
 	for i, r := range rows {
 		for j, g := range r.Groups {
-			selectTovar, _ := db.Query("SELECT TOV_POZ, NAIM, DATA FROM tnved3 WHERE DATA1 = '' AND GRUPPA = ?", g.Gruppa)
+			selectTovar, _ := db.Query("SELECT GRUPPA || TOV_POZ, NAIM, DATA FROM tnved3 WHERE DATA1 = '' AND GRUPPA = ?", g.Gruppa)
 			defer selectTovar.Close()
 			for selectTovar.Next() {
 				var row tovar
@@ -216,7 +214,7 @@ func selectTNVED(db *sql.DB) []razdelRow {
 	for i, r := range rows {
 		for j, g := range r.Groups {
 			for k, t := range g.Tovars {
-				selectSub, _ := db.Query("SELECT SUB_POZ, KR_NAIM, DATA FROM tnved4 WHERE DATA1 = '' AND GRUPPA = ? AND TOV_POZ = ?", g.Gruppa, t.TovPoz)
+				selectSub, _ := db.Query("SELECT GRUPPA || TOV_POZ || SUB_POZ, KR_NAIM, DATA FROM tnved4 WHERE DATA1 = '' AND GRUPPA = ? AND TOV_POZ = ?", g.Gruppa, t.TovPoz[2:])
 				defer selectSub.Close()
 				for selectSub.Next() {
 					var row sub
@@ -231,7 +229,6 @@ func selectTNVED(db *sql.DB) []razdelRow {
 
 func saveToJSON(tnved []razdelRow) {
 	println("formed, start to export")
-	fmt.Println(tnved[0].Data)
 	file, err := json.MarshalIndent(tnved, "", "  ")
 	if err != nil {
 		fmt.Println(err.Error())
