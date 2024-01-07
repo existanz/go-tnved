@@ -31,7 +31,16 @@ func DecodeCP866(s string) string {
 func StringsToAny(strings []string) []any {
 	res := make([]any, len(strings))
 	for i, str := range strings {
-		res[i] = str
+		if i >= len(strings)-3 && len(str) == 10 {
+			res[i] = ConvertDate(str)
+		} else {
+			res[i] = str
+		}
 	}
 	return res[:len(res)-1]
+}
+
+func ConvertDate(s string) string {
+	ans := s[6:10] + "-" + s[3:5] + "-" + s[0:2]
+	return ans
 }

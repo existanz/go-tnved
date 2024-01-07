@@ -120,6 +120,8 @@ func main() {
 	} else if command == "export" {
 		tnved := selectTNVED(db)
 		saveToJSON(tnved)
+	} else if command == "test" {
+		utils.ConvertDate("22.12.2021")
 	}
 }
 
@@ -155,28 +157,28 @@ func initTables(db *sql.DB, tables []Table) {
 }
 
 type razdelRow struct {
-	Razdel string  `json:"razdel"`
+	Razdel string  `json:"chapter"`
 	Naim   string  `json:"naim"`
-	Data   string  `json:"data"`
+	Data   string  `json:"date"`
 	Groups []group `json:"groups"`
 }
 
 type group struct {
-	Gruppa string  `json:"gruppa"`
+	Gruppa string  `json:"group"`
 	Naim   string  `json:"naim"`
-	Data   string  `json:"data"`
-	Tovars []tovar `json:"tovars"`
+	Data   string  `json:"date"`
+	Tovars []tovar `json:"goods"`
 }
 
 type tovar struct {
-	TovPoz string `json:"tovpoz"`
+	TovPoz string `json:"good"`
 	Naim   string `json:"naim"`
 	Data   string `json:"date"`
 	Subs   []sub  `json:"subs"`
 }
 
 type sub struct {
-	SubPoz string `json:"subpoz"`
+	SubPoz string `json:"sub"`
 	Naim   string `json:"naim"`
 	Data   string `json:"date"`
 }
@@ -229,8 +231,8 @@ func selectTNVED(db *sql.DB) []razdelRow {
 
 func saveToJSON(tnved []razdelRow) {
 	println("formed, start to export")
+	fmt.Println(tnved[0].Data)
 	file, err := json.MarshalIndent(tnved, "", "  ")
-	println(string(file))
 	if err != nil {
 		fmt.Println(err.Error())
 	}
