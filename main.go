@@ -11,6 +11,8 @@ import (
 
 	"go-tnved/pkg/utils"
 
+	"github.com/existanz/gomenu"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -82,47 +84,59 @@ var tables []Table = []Table{
 	},
 }
 
+var menuItems []*gomenu.MenuItem = []*gomenu.MenuItem{
+	{Label: "Load to DB", ID: "load"},
+	{Label: "Export to json", ID: "export"},
+}
+
 func main() {
-	fmt.Println("Start!")
+	m := gomenu.NewMenu("Choose action")
+	m.Items = menuItems
 	db, _ := sql.Open("sqlite3", utils.PathAdd(outputDir, dbFileName))
 	defer db.Close()
-	var command string
-	fmt.Scan(&command)
-	if command == "convert" {
-
-		initTables(db, tables)
-
-		dir, _ := os.Open(importDir)
-		defer dir.Close()
-		files, _ := dir.ReadDir(0)
-		for _, file := range files {
-			fileName := file.Name()
-			nextFile, _ := os.Open(utils.PathAdd(importDir, fileName))
-			scanner := bufio.NewScanner(nextFile)
-			scanner.Scan()
-			var version, date string
-			utils.Unpack(strings.Split(scanner.Text(), "|"), &version, &date)
-			fmt.Printf("File %s, version: %s, date: %s start conversion! \n", fileName, version, date)
-			tableName := strings.ToLower(fileName[:len(fileName)-4])
-			i := slices.IndexFunc(tables, func(t Table) bool {
-				return t.name == tableName
-			})
-			insert := insertToTable(db, tables[i])
-			for scanner.Scan() {
-				line := utils.DecodeCP866(scanner.Text())
-				rows := utils.StringsToAny(strings.Split(line, "|"))
-				insert.Exec(rows...)
-			}
-			defer insert.Close()
-			fmt.Printf("Table %s is filled from file %s \n", tableName, fileName)
-		}
-		fmt.Println("Finished!")
+	command := m.Load()
+	if command == "load" {
+		loadToDB(db)
 	} else if command == "export" {
 		tnved := selectTNVED(db)
 		saveToJSON(tnved)
 	}
 }
 
+func loadToDB(db *sql.DB) {
+	initTables(db, tables)
+
+	dir, _ := os.Open(importDir)
+	defer dir.Close()
+	files, _ := dir.ReadDir(0)
+	for _, file := range files {
+		fileName := file.Name()
+		processFile(db, fileName)
+	}
+	fmt.Println("Finished!")
+}
+
+func processFile(db *sql.DB, fileName string) {
+	nextFile, _ := os.Open(utils.PathAdd(importDir, fileName))
+	defer nextFile.Close()
+	scanner := bufio.NewScanner(nextFile)
+	scanner.Scan()
+	var version, date string
+	utils.Unpack(strings.Split(scanner.Text(), "|"), &version, &date)
+	fmt.Printf("File %s, version: %s, date: %s start conversion! \n", fileName, version, date)
+	tableName := strings.ToLower(fileName[:len(fileName)-4])
+	i := slices.IndexFunc(tables, func(t Table) bool {
+		return t.name == tableName
+	})
+	insert := insertToTable(db, tables[i])
+	for scanner.Scan() {
+		line := utils.DecodeCP866(scanner.Text())
+		rows := utils.StringsToAny(strings.Split(line, "|"))
+		insert.Exec(rows...)
+	}
+	defer insert.Close()
+	fmt.Printf("Table %s is filled from file %s \n", tableName, fileName)
+}
 func insertToTable(db *sql.DB, table Table) *sql.Stmt {
 	insertQuery := "INSERT INTO " + table.name + " ("
 	values := ") VALUES ("
