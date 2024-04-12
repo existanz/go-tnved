@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"go-tnved/pkg/utils"
 
@@ -109,14 +110,18 @@ func loadToDB(db *sql.DB) {
 	dir, _ := os.Open(importDir)
 	defer dir.Close()
 	files, _ := dir.ReadDir(0)
+	wg := new(sync.WaitGroup)
 	for _, file := range files {
 		fileName := file.Name()
-		processFile(db, fileName)
+		wg.Add(1)
+		go processFile(db, fileName, wg)
 	}
+	wg.Wait()
 	fmt.Println("Finished!")
 }
 
-func processFile(db *sql.DB, fileName string) {
+func processFile(db *sql.DB, fileName string, wg *sync.WaitGroup) {
+	defer wg.Done()
 	nextFile, _ := os.Open(utils.PathAdd(importDir, fileName))
 	defer nextFile.Close()
 	scanner := bufio.NewScanner(nextFile)
